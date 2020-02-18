@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  StageName:
+    Type: String
+    Description: Represents a unique identifier for a version of a deployed RestApi that is callable by users.
+
+Resources:
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        S3Bucket: <BUCKET_NAME>
+        S3Key: <BUCKET_KEY>
+      Description: Sample Lambda
+      FunctionName: SampleLambda
+      Handler: main
+      MemorySize: 128
+      Role: !GetAtt LambdaFunctionRole.Arn
+      Runtime: go1.x
+      Timeout: 10
+
+  LambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SampleLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Path: '/'
+      ManagedPolicyArns:
+      # This gives your Lambda permission to use AWS X-Ray
+      - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+      # Uncomment this if the Lambda is in a VPC
+      # - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: SampleAPIGateway
+      Description: Sample API Gateway
+      EndpointConfiguration:
+        Types:
+        # For a regional API and its custom domain name.
+        - REGIONAL
+        # For a private API.
+        # - PRIVATE
+        # For an edge-optimized API and its custom domain name.
+        # - EDGE
+      Body:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: !Sub s3://path/to/swagger.yaml
+
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayRole.Arn
+
+  ApiGatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SampleApiGatewayCloudWatchRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+      Path: '/'
+      ManagedPolicyArns:
+      - 'arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs'
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    DependsOn:
+    - ApiAccount 
+    Properties: 
+      DeploymentId: !Ref ApiGatewayDeployment 
+      MethodSettings: 
+      - DataTraceEnabled: true
+      HttpMethod: '*' 
+      LoggingLevel: INFO 
+      ResourcePath: /*
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref StageName
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref ApiGateway
